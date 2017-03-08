@@ -1,7 +1,9 @@
 /*****************************************************************************
-Based on the NewPing library created by Tim Eckel (see original attribution 
-below), but has been significantly modified - The code has been tweaked quite 
-a bit and modified to work with the RTL_EventFramework as an event source.
+A C++ class that interfaces an HC-SR04 sonar transceiver to the Arduino. 
+
+This is based on the NewPing library created by Tim Eckel (see original attribution 
+comment below), but has been significantly modified - The code has been tweaked 
+quite a bit and modified to work with the RTL_EventFramework as an event source.
 *****************************************************************************/
 // ---------------------------------------------------------------------------
 // SonarSensor Library - v1.5 - 08/15/2012
