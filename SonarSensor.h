@@ -1,3 +1,6 @@
+#ifndef _SonarSensor_h_
+#define _SonarSensor_h_
+
 // ---------------------------------------------------------------------------
 // SonarSensor Library - v1.5 - 08/15/2012
 //
@@ -100,12 +103,8 @@
 // 05/15/2012 v1.0 - Initial release.
 // ---------------------------------------------------------------------------
 
-#ifndef SonarSensor_h
-#define SonarSensor_h
-
 #include <inttypes.h>
 #include <EventSource.h>
-
 
 // Probably shouldn't change these values unless you really know what you're doing.
 #define MAX_SENSOR_DISTANCE 500 // Max sensor distance can be as high as 500cm, no reason to wait for ping longer than sound takes to travel this distance and back.
@@ -135,7 +134,7 @@ class SonarSensor : public EventSource
     // Class variables
     //**************************************************************************
     // The sonar event ID.
-    public: static EVENT_ID SONAR_EVENT;
+    public: static const EVENT_ID SONAR_EVENT = (EventSourceID::SonarSensor | EventCode::DefaultEvent);
 
     //**************************************************************************
     // Constructors

@@ -39,7 +39,7 @@
 // Class variables
 //******************************************************************************
 // The sonar event ID.
-EVENT_ID SonarSensor::SONAR_EVENT = EventSource::GenerateEventID();
+//EVENT_ID SonarSensor::SONAR_EVENT = EventSource::GenerateEventID();
 
 
 // -----------------------------------------------------------------------------
