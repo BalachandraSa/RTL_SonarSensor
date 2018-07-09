@@ -16,6 +16,9 @@ local.properties
 .settings/
 .loadpath
 
+#ignore backup folder
+[Bb]ackup/
+
 # External tool builders
 .externalToolBuilders/
 
