@@ -7,6 +7,7 @@
 ###################################
 
 SonarSensor	KEYWORD1
+SonarPlatform	KEYWORD1
 
 ###################################
 # Methods and Functions (KEYWORD2)
@@ -29,3 +30,5 @@ PingAverage	KEYWORD2
 ###################################
 # Constants (LITERAL1)
 ###################################
+
+OBSTACLE_EVENT	LITERAL1

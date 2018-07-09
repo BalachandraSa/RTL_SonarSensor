@@ -1,8 +1,8 @@
-#ifndef _SonarSensor_h_
-#define _SonarSensor_h_
+#ifndef _SonarSensorAsync_h_
+#define _SonarSensorAsync_h_
 
 // ---------------------------------------------------------------------------
-// SonarSensor Library - v1.5 - 08/15/2012
+// SonarSensorAsync Library - v1.5 - 08/15/2012
 //
 // AUTHOR/LICENSE:
 // Created by Tim Eckel - teckel@leethost.com
@@ -19,7 +19,7 @@
 // BACKGROUND:
 // When I first received an ultrasonic sensor I was not happy with how poorly
 // it worked. Quickly I realized the problem wasn't the sensor, it was the
-// available ping and ultrasonic libraries causing the problem. The SonarSensor
+// available ping and ultrasonic libraries causing the problem. The SonarSensorAsync
 // library totally fixes these problems, adds many new features, and breaths
 // new life into these very affordable distance sensors. 
 //
@@ -38,8 +38,8 @@
 // * Actively developed with features being added and bugs/issues addressed.
 //
 // CONSTRUCTOR:
-//   SonarSensor sonar(triggerPin, echoPin [, max_cm_distance])
-//     triggerPin & echoPin - Arduino pins connected to sensor trigger and echo.
+//   SonarSensorAsync sonar(trigger_pin, echo_pin [, max_cm_distance])
+//     trigger_pin & echo_pin - Arduino pins connected to sensor trigger and echo.
 //       NOTE: To use the same Arduino pin for trigger and echo, specify the same pin for both values.
 //     max_cm_distance - [Optional] Maximum distance you wish to sense. Default=500cm.
 //
@@ -104,91 +104,46 @@
 // ---------------------------------------------------------------------------
 
 #include <inttypes.h>
+#include <RTL_EventFramework.h>
 #include <RTL_Stdlib.h>
-#include <RTL_Math.h>
-
-// Probably shouldn't change these values unless you really know what you're doing.
-#define MAX_DISTANCE 400        // Max sensor distance can be as high as 500cm, no reason to wait for ping longer than sound takes to travel this distance and back.
-#define US_ROUNDTRIP_IN 146     // Microseconds it takes sound to travel round-trip 1 inch (2 inches total), uses integer to save compiled code space.
-#define US_ROUNDTRIP_CM 57      // Microseconds it takes sound to travel round-trip 1cm (2cm total), uses integer to save compiled code space.
-#define PING_FAILED 0xFFFF      // Value returned if ping failed to trigger.
-
-// Conversion from microseconds to distance (round result to nearest cm or inch).
-#define PingTimeToDistance(echoTime, conversionFactor) (max((echoTime + conversionFactor / 2) / conversionFactor, (echoTime ? 1 : 0)))
-#define PingTimeToCentimeters(echoTime) (((uint16_t)(echoTime) + US_ROUNDTRIP_CM / 2) / US_ROUNDTRIP_CM)
-#define PingTimeToInches(echoTime)      (((uint16_t)(echoTime) + US_ROUNDTRIP_IN / 2) / US_ROUNDTRIP_IN)
-
-// Sensor can be connected to Arduino in either one-pin or two-pin mode (default).
-// Two-pin mode: The sensor trigger and echo pins are connected to seperate pins on the Arduino.
-//               The Arduino trigger pin is always in output mode and the Arduino echo pin is always in input mode.   
-// One-pin mode: The sensor trigger and echo pins are physically tied together and connected to one pin on the Arduino.
-//               The Arduino pin needs to be switched to output mode when triggering and to input mode when checking for echo 
-#define TWO_PIN_MODE true  // Set to "true" for two-pin mode, false for one-pin mode
-#define ONE_PIN_MODE (!TWO_PIN_MODE)
+#include "SonarSensor.h"
 
 
-class SonarSensor
+class SonarSensorAsync : public SonarSensor, public EventSource
 {
     DECLARE_CLASSNAME;
 
     /*--------------------------------------------------------------------------
     Constants
     --------------------------------------------------------------------------*/
-    /// Maximum range ping duration
-    public: static const uint16_t MAX_PING = (MAX_DISTANCE * US_ROUNDTRIP_CM);
-
-    
-    /*--------------------------------------------------------------------------
-    Constructors
-    --------------------------------------------------------------------------*/
-    public: SonarSensor(uint8_t triggerPin, uint8_t echoPin);
-
-    
-    /*--------------------------------------------------------------------------
-    Public methods
-    --------------------------------------------------------------------------*/
-    
-    //**************************************************************************
-    /// Performs a single ultrasonic sensor measurement, returning ping time in 
-    /// microseconds. 
-    ///
-    /// Returns: If successful, returns the microseconds taken for the ping, which 
-    ///          can be converted to centimeters with PingTimeToCentimeters. If 
-    ///          the ping failed then PING_FAILED is returned (0xFFFF).
-    //**************************************************************************
-    public: uint16_t Ping();
+    /// The sonar event ID.
+    public: static const EVENT_ID SONAR_EVENT = (EventSourceID::SonarSensor | EventCode::DefaultEvent);
 
     //**************************************************************************
-    /// Performs a single ultrasonic sensor measurement, returning ping distance 
-    /// in centimeters. 
-    ///
-    /// Returns: If successful, returns the ping distance in centimeters. If the 
-    ///          ping failed then PING_FAILED is returned (0xFFFF).
+    // Constructors
     //**************************************************************************
-    public: uint16_t PingCentimeters() { auto ping = Ping(); return ping == PING_FAILED ? PING_FAILED : PingTimeToCentimeters(ping); };
+    public: SonarSensorAsync(uint8_t triggerPin, uint8_t echoPin);
 
     //**************************************************************************
-    /// Take an ultrasonic sensor sample over multiple pings. This method takes 
-    /// the specified number of samples (default is 5) and averages them, which 
-    /// is one way to reduce the effect of noisy data.
-    ///
-    /// Returns: Is successful, the average ping distance in centimeters. Otherwise,
-    ///          returns PING_FAILED (0xFFFF).
+    // Public interface
     //**************************************************************************
-    public: uint16_t MultiPing(const uint8_t samples = 5);
 
-    public: uint16_t PingMedian(const uint8_t maxSamples = 5);
+    // Polling method for the Scheduler to call
+    public: virtual void Poll();
 
+    //**************************************************************************
+    // Asynchronous interface functions
+    //**************************************************************************
+    public: bool PingAsync();
     
-    /*--------------------------------------------------------------------------
-    Internal implementation
-    --------------------------------------------------------------------------*/
-    protected: bool TriggerPing();
-    
-    
-    protected: uint32_t _pingStartTime;
-    protected: uint8_t  _triggerPin;
-    protected: uint8_t  _echoPin;
+    public: void CheckEchoAsync();
+
+    //**************************************************************************
+    // Internal implementation
+    //**************************************************************************
+    private: uint16_t _asyncPing;
+    private: volatile uint8_t* _echoInput;
+    private: volatile uint8_t  _echoBit;
 };
 
 #endif
