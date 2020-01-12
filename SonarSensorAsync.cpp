@@ -11,6 +11,7 @@
 #include <avr/interrupt.h>
 #include <RTL_Stdlib.h>
 #include <RTL_Math.h>
+#include <EventQueue.h>
 #include "SonarSensorAsync.h"
 
 

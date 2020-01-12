@@ -26,7 +26,11 @@
 
 // Probably shouldn't change these values unless you really know what you're doing.
 #define MAX_SENSOR_DELAY 18000  // Max microseconds it takes for sensor to start the ping (SRF06 is the highest measured, just under 18ms).
-#define PING_INTERVAL 29        // Min delay between successive pings in milliseconds.
+#define MAX_RESET_TIME 140000   // Max microseconds required for sensor to reset after timeout
+#define PING_INTERVAL 29000     // Min microseconds between successive pings.
+
+// Minimum time between successive pings in microseconds (approx 50ms) 
+static const uint16_t MIN_CYCLE = MAX_PING + PING_INTERVAL;
 
 
 //******************************************************************************
@@ -42,12 +46,25 @@ SonarSensor::SonarSensor(uint8_t triggerPin, uint8_t echoPin)
 {
     _triggerPin = triggerPin;
     _echoPin = echoPin;
+    _lastPing = 0;
+    _pingStartTime = micros();
 
 #if TWO_PIN_MODE
     pinMode(_triggerPin, OUTPUT);
     pinMode(_echoPin, INPUT);
 #endif
 }
+
+
+bool SonarSensor::Ready() 
+{
+    volatile uint8_t  echoBit = digitalPinToBitMask(_echoPin);                              // Get the port register bit-mask for the echo pin.
+    volatile uint8_t* echoInput = (uint8_t*)portInputRegister(digitalPinToPort(_echoPin));  // Get the input port register for the echo pin.
+
+    auto nextCycleTime = _pingStartTime + MIN_CYCLE;
+
+    return IS_LO(echoInput, echoBit) && (micros() > nextCycleTime);
+};
 
 
 //******************************************************************************
@@ -57,37 +74,42 @@ SonarSensor::SonarSensor(uint8_t triggerPin, uint8_t echoPin)
 //******************************************************************************
 bool SonarSensor::TriggerPing()
 {
+    //TRACE(Logger(_classname_, this) << F("triggerPin=") << _triggerPin << F(", echoPin=") << _echoPin << endl);
+    //TRACE(Logger(_classname_, this) << F("TWO_PIN_MODE=") << TWO_PIN_MODE << endl);
+
     volatile uint8_t  triggerBit = digitalPinToBitMask(_triggerPin);                               // Get the port register bitmask for the trigger pin.
     volatile uint8_t  echoBit = digitalPinToBitMask(_echoPin);                                     // Get the port register bit-mask for the echo pin.
     volatile uint8_t* triggerOutput = (uint8_t*)portOutputRegister(digitalPinToPort(_triggerPin)); // Get the output port register for the trigger pin.
     volatile uint8_t* echoInput = (uint8_t*)portInputRegister(digitalPinToPort(_echoPin));         // Get the input port register for the echo pin.
-    volatile uint8_t* triggerMode = (uint8_t*)portModeRegister(digitalPinToPort(_triggerPin));     // Get the port mode register for the trigger pin.
 
 #if ONE_PIN_MODE
+    volatile uint8_t* triggerMode = (uint8_t*)portModeRegister(digitalPinToPort(_triggerPin));     // Get the port mode register for the trigger pin.
     *triggerMode |= triggerBit;    // Set trigger pin to output.
 #endif
-
+    
+    // Pulse the trigger pin to start the ping
     OUTPUT_LO_PULSE(triggerOutput, triggerBit, 4);  // Make sure trigger pin is low for at least 4 microseconds
-    OUTPUT_HI_PULSE(triggerOutput, triggerBit, 10); // Send 10 microsecond trigger pulse per sensor spec
+    OUTPUT_HI_PULSE(triggerOutput, triggerBit, 11); // Send minimum 10 microsecond trigger pulse per sensor spec
     OUTPUT_LO(triggerOutput, triggerBit);           // End pulse
 
 #if ONE_PIN_MODE
     *triggerMode &= ~triggerBit;   // Set trigger pin to input (when in one-pin mode this is setting the echo pin to input as both trigger & echo are tied together).
 #endif
 
-    auto timeout = micros() + MAX_SENSOR_DELAY;     // Set a timeout while waiting for ping to start
-    auto timeoutFlag = false;
+    // Wait for the echo pin to go high, which indicates the ping has started
+    auto now = micros();
 
-    // If echo pin is low, then wait for it to go high
-    if (IS_LO(echoInput, echoBit))
+    for (auto timeout = now + MAX_SENSOR_DELAY; now <= timeout; now = micros())
     {
-        // Wait for echo pin to go high to signal start of ping
-        WAITFOR_HI(echoInput, echoBit, timeout, timeoutFlag);
+        if (IS_HI(echoInput, echoBit))  // Detected ping start
+        {
+            _pingStartTime = now - 4;   // subtract 4us to account for micros() overhead
+            return true;
+        }
     }
 
-    _pingStartTime = micros() - 4;  // subtract 4us to account for micros() overhead
-
-    return !timeoutFlag;
+    TRACE(Logger(_classname_, this) << F("TriggerPing: timeout waiting for echo pin to go high") << endl);
+    return false;
 }
 
 
@@ -108,28 +130,27 @@ uint16_t SonarSensor::Ping()
 
     if (!TriggerPing())
     {
-        TRACE(Logger(_classname_, this) << F("Ping: !!!!!!!!!!!! failed to trigger !!!!!!!!!!!!") << endl);
+        TRACE(Logger(_classname_, this) << F("Ping failed to trigger") << endl);
         return PING_FAILED;
     }
 
-    auto timeout = _pingStartTime + MAX_PING;        // Compute timeout time
+    auto now = micros();
 
-    // Wait for the ping echo.
-    while (*echoInput & echoBit)
+    // Wait for echo pin to go low (or a timeout occurs)
+    for (auto timeout = now + MAX_PING; IS_HI(echoInput, echoBit); now = micros())
     {
-       if (micros() > timeout) 
-       {
-           TRACE(Logger(_classname_, this) << F("Ping: ------------ timed out ------------") << endl);
-           break;
-       }
+        if (now > timeout)
+        {
+            TRACE(Logger(_classname_, this) << F("------------ timed out ------------") << endl);
+            break;
+        }
     }
 
-    // Calculate ping time, 5uS of overhead.
-    auto ping = UDIFF(micros(), _pingStartTime) - 5;
+    // Calculate ping time, minus 5uS of overhead.
+    _lastPing = UDIFF(now, _pingStartTime) - 5;
 
-    TRACE(Logger(_classname_, this) << F("Ping=") << ping << F("us") << endl);
-
-    return ping;
+    TRACE(Logger(_classname_, this) << F("Ping=") << _lastPing << F("us") << endl);
+    return _lastPing;
 }
 
 
@@ -147,16 +168,34 @@ uint16_t SonarSensor::MultiPing(const uint8_t samples)
 
     uint32_t sum = 0;
     uint8_t  count = 0;
+    uint8_t  failCount = 0;
 
-    for (auto i = 0; i < samples; i++)
+    for (auto timeout = millis() + 150; count < samples;)
     {
-        auto ping = Ping();
+        uint16_t ping;
+
+        if (Ready())
+            ping = Ping();
+        else if (millis() > timeout)
+            ping = PING_FAILED;
+        else
+            continue;   //Still waiting for ultrasonic sensor to be ready
 
         // throw out bad samples
-        if (ping == PING_FAILED) continue;
-      
+        if (ping == PING_FAILED)
+        {
+            // Ignore bad samples as long they are below the failure threshold
+            if (++failCount < 5) continue;
+
+            // Otherwise, something is really wrong so quit returning a PING_FAILED
+            count = 0;
+            break;
+        }
+
         sum += ping;
         count++;
+        failCount = 0;
+        timeout = millis() + 150;
     }
     
     uint16_t ping = (count > 0) ? PingTimeToCentimeters(sum / count) : PING_FAILED;

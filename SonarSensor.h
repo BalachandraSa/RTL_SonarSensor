@@ -108,10 +108,12 @@
 #include <RTL_Math.h>
 
 // Probably shouldn't change these values unless you really know what you're doing.
-#define MAX_DISTANCE 400        // Max sensor distance can be as high as 500cm, no reason to wait for ping longer than sound takes to travel this distance and back.
+#define MAX_DISTANCE 400        // Max sensor distance in centimeters, no reason to wait for ping longer than sound takes to travel this distance and back.
 #define US_ROUNDTRIP_IN 146     // Microseconds it takes sound to travel round-trip 1 inch (2 inches total), uses integer to save compiled code space.
 #define US_ROUNDTRIP_CM 57      // Microseconds it takes sound to travel round-trip 1cm (2cm total), uses integer to save compiled code space.
 #define PING_FAILED 0xFFFF      // Value returned if ping failed to trigger.
+#define MAX_PING (MAX_DISTANCE * US_ROUNDTRIP_CM) // Maximum ping duration in microseconds
+
 
 // Conversion from microseconds to distance (round result to nearest cm or inch).
 #define PingTimeToDistance(echoTime, conversionFactor) (max((echoTime + conversionFactor / 2) / conversionFactor, (echoTime ? 1 : 0)))
@@ -134,8 +136,6 @@ class SonarSensor
     /*--------------------------------------------------------------------------
     Constants
     --------------------------------------------------------------------------*/
-    /// Maximum range ping duration
-    public: static const uint16_t MAX_PING = (MAX_DISTANCE * US_ROUNDTRIP_CM);
 
     
     /*--------------------------------------------------------------------------
@@ -179,6 +179,8 @@ class SonarSensor
 
     public: uint16_t PingMedian(const uint8_t maxSamples = 5);
 
+    public: bool Ready();
+
     
     /*--------------------------------------------------------------------------
     Internal implementation
@@ -186,9 +188,10 @@ class SonarSensor
     protected: bool TriggerPing();
     
     
-    protected: uint32_t _pingStartTime;
     protected: uint8_t  _triggerPin;
     protected: uint8_t  _echoPin;
+    protected: uint16_t _lastPing;
+    protected: uint32_t _pingStartTime;
 };
 
 #endif
