@@ -108,10 +108,12 @@
 #include <RTL_Math.h>
 
 // Probably shouldn't change these values unless you really know what you're doing.
-#define MAX_DISTANCE 400        // Max sensor distance in centimeters, no reason to wait for ping longer than sound takes to travel this distance and back.
+#define MIN_DISTANCE 2          // Minimum measureable distance in centimeters
+#define MAX_DISTANCE 400        // Maximum measureable distance in centimeters, no reason to wait for ping longer than sound takes to travel this distance and back.
 #define US_ROUNDTRIP_IN 146     // Microseconds it takes sound to travel round-trip 1 inch (2 inches total), uses integer to save compiled code space.
 #define US_ROUNDTRIP_CM 57      // Microseconds it takes sound to travel round-trip 1cm (2cm total), uses integer to save compiled code space.
 #define PING_FAILED 0xFFFF      // Value returned if ping failed to trigger.
+#define MIN_PING (MIN_DISTANCE * US_ROUNDTRIP_CM) // Minimum ping duration in microseconds
 #define MAX_PING (MAX_DISTANCE * US_ROUNDTRIP_CM) // Maximum ping duration in microseconds
 
 
@@ -168,14 +170,14 @@ class SonarSensor
     public: uint16_t PingCentimeters() { auto ping = Ping(); return ping == PING_FAILED ? PING_FAILED : PingTimeToCentimeters(ping); };
 
     //**************************************************************************
-    /// Take an ultrasonic sensor sample over multiple pings. This method takes 
-    /// the specified number of samples (default is 5) and averages them, which 
-    /// is one way to reduce the effect of noisy data.
-    ///
-    /// Returns: Is successful, the average ping distance in centimeters. Otherwise,
-    ///          returns PING_FAILED (0xFFFF).
+    // Take an ultrasonic sensor sample over 3 pings. This method takes 3 pings and
+    // averages the two that are closest together (or, equivalently, throws out the 
+    // most outlying ping).
+    //
+    // Returns: The average ping distance in centimeters, if successful. Otherwise,
+    //          returns PING_FAILED (0xFFFF).
     //**************************************************************************
-    public: uint16_t MultiPing(const uint8_t samples = 5);
+    public: uint16_t MultiPing();
 
     public: uint16_t PingMedian(const uint8_t maxSamples = 5);
 

@@ -30,7 +30,7 @@
 #define PING_INTERVAL 29000     // Min microseconds between successive pings.
 
 // Minimum time between successive pings in microseconds (approx 50ms) 
-static const uint16_t MIN_CYCLE = MAX_PING + PING_INTERVAL;
+static const uint16_t MIN_CYCLE_TIME = MAX_PING + PING_INTERVAL;
 
 
 //******************************************************************************
@@ -61,9 +61,10 @@ bool SonarSensor::Ready()
     volatile uint8_t  echoBit = digitalPinToBitMask(_echoPin);                              // Get the port register bit-mask for the echo pin.
     volatile uint8_t* echoInput = (uint8_t*)portInputRegister(digitalPinToPort(_echoPin));  // Get the input port register for the echo pin.
 
-    auto nextCycleTime = _pingStartTime + MIN_CYCLE;
+    auto nextStartTime = _pingStartTime + MIN_CYCLE_TIME;
 
-    return IS_LO(echoInput, echoBit) && (micros() > nextCycleTime);
+    return IS_LO(echoInput, echoBit) && (micros() > nextStartTime);
+//    return (micros() > nextStartTime);
 };
 
 
@@ -89,7 +90,7 @@ bool SonarSensor::TriggerPing()
     
     // Pulse the trigger pin to start the ping
     OUTPUT_LO_PULSE(triggerOutput, triggerBit, 4);  // Make sure trigger pin is low for at least 4 microseconds
-    OUTPUT_HI_PULSE(triggerOutput, triggerBit, 11); // Send minimum 10 microsecond trigger pulse per sensor spec
+    OUTPUT_HI_PULSE(triggerOutput, triggerBit, 10); // Send minimum 10 microsecond trigger pulse per sensor spec
     OUTPUT_LO(triggerOutput, triggerBit);           // End pulse
 
 #if ONE_PIN_MODE
@@ -134,7 +135,7 @@ uint16_t SonarSensor::Ping()
         return PING_FAILED;
     }
 
-    auto now = micros();
+    uint32_t now = micros();
 
     // Wait for echo pin to go low (or a timeout occurs)
     for (auto timeout = now + MAX_PING; IS_HI(echoInput, echoBit); now = micros())
@@ -147,67 +148,89 @@ uint16_t SonarSensor::Ping()
     }
 
     // Calculate ping time, minus 5uS of overhead.
-    _lastPing = UDIFF(now, _pingStartTime) - 5;
-
+    _lastPing = udiff(now, _pingStartTime) - 5;
     TRACE(Logger(_classname_, this) << F("Ping=") << _lastPing << F("us") << endl);
-    return _lastPing;
+
+    return (_lastPing > MIN_PING) ? _lastPing : PING_FAILED;
 }
 
 
 //******************************************************************************
-// Take an ultrasonic sensor sample over multiple pings. This method takes 
-// the specified number of samples (default is 5) and averages them, which 
-// is one way to reduce the effect of noisy data.
+// Take an ultrasonic sensor sample over 3 pings. This method takes 3 pings and
+// averages the two that are closest together (or, equivalently, throws out the 
+// most outlying ping).
 //
-// Returns: Is successful, the average ping distance in centimeters. Otherwise,
+// Returns: The average ping distance in centimeters, if successful. Otherwise,
 //          returns PING_FAILED (0xFFFF).
 //******************************************************************************
-uint16_t SonarSensor::MultiPing(const uint8_t samples)
+uint16_t SonarSensor::MultiPing()
 {
-    TRACE(Logger(_classname_, this) << F("MultiPing, samples=") << samples << endl);
+    TRACE(Logger(_classname_, F("MultiPing")) << endl);
 
-    uint32_t sum = 0;
-    uint8_t  count = 0;
-    uint8_t  failCount = 0;
+    int32_t pings[3];
+    auto    timeout = millis() + 150;
 
-    for (auto timeout = millis() + 150; count < samples;)
+    for (auto count = 0, failCount = 0; count < 3;)
     {
-        uint16_t ping;
+        uint16_t ping = PING_FAILED;
 
         if (Ready())
             ping = Ping();
-        else if (millis() > timeout)
-            ping = PING_FAILED;
-        else
-            continue;   //Still waiting for ultrasonic sensor to be ready
+        else if (millis() < timeout)
+            continue;
 
-        // throw out bad samples
-        if (ping == PING_FAILED)
+        // if we got a good ping
+        if (ping != PING_FAILED)
         {
-            // Ignore bad samples as long they are below the failure threshold
-            if (++failCount < 5) continue;
-
-            // Otherwise, something is really wrong so quit returning a PING_FAILED
-            count = 0;
-            break;
+            pings[count++] = ping;
+            failCount = 0;
+        }
+        else
+        {
+            TRACE(Logger(_classname_, F("MultiPing")) << F("Ping Failed ") << ping << endl);
+            if (++failCount >= 5) return PING_FAILED;
         }
 
-        sum += ping;
-        count++;
-        failCount = 0;
         timeout = millis() + 150;
     }
     
-    uint16_t ping = (count > 0) ? PingTimeToCentimeters(sum / count) : PING_FAILED;
+    // Have the pings "vote" - the two pings that are closest to the average win
+    auto avg_ping = (pings[0] + pings[1] + pings[2]) / 3;
+
+    int32_t ds[3];
     
-    TRACE(Logger(_classname_, this) << F("MultiPing, ping=") << ping << endl); 
+    ds[0] = abs(pings[0] - avg_ping);
+    ds[1] = abs(pings[1] - avg_ping);
+    ds[2] = abs(pings[2] - avg_ping);
+
+    auto idx_max = 0;
+
+    if (ds[1] > ds[idx_max]) idx_max = 1;
+    if (ds[2] > ds[idx_max]) idx_max = 2;
+
+    int32_t sum = 0;
+
+    if (idx_max != 0) sum += pings[0];
+    if (idx_max != 1) sum += pings[1];
+    if (idx_max != 2) sum += pings[2];
+
+    uint16_t ping = PingTimeToCentimeters(sum / 2);
+    
+    TRACE(Logger(_classname_, F("MultiPing")) << F("ping[0]=")   << pings[0] << F(" ds[0]=") << ds[0]
+                                              << F(", ping[1]=") << pings[1] << F(" ds[1]=") << ds[1]
+                                              << F(", ping[2]=") << pings[2] << F(" ds[2]=") << ds[2]
+                                              << endl);
+    TRACE(Logger(_classname_, F("MultiPing")) << F("average ping=") << avg_ping << endl);
+    TRACE(Logger(_classname_, F("MultiPing")) << F("Discarding ping ") << idx_max << endl);
+    TRACE(Logger(_classname_, F("MultiPing")) << F("MultiPing, ping=") << ping << endl);
+
     return ping;
 }
 
 
 uint16_t SonarSensor::PingMedian(const uint8_t maxSamples)
 {
-    TRACE(Logger(_classname_, this) << F("PingMedian") << endl);
+    TRACE(Logger(_classname_, F("MultiPing")) << F("PingMedian") << endl);
 
     uint16_t samples[10];
     uint8_t sampleCount = maxSamples;
