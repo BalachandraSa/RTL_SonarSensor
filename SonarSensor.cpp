@@ -64,7 +64,6 @@ bool SonarSensor::Ready()
     auto nextStartTime = _pingStartTime + MIN_CYCLE_TIME;
 
     return IS_LO(echoInput, echoBit) && (micros() > nextStartTime);
-//    return (micros() > nextStartTime);
 };
 
 
@@ -179,19 +178,18 @@ uint16_t SonarSensor::MultiPing()
         else if (millis() < timeout)
             continue;
 
-        // if we got a good ping
-        if (ping != PING_FAILED)
-        {
-            pings[count++] = ping;
-            failCount = 0;
-        }
-        else
+        timeout = millis() + 150;   // Next timeout
+
+        // if we got a bad ping retry up to 5 times before quitting
+        if (ping == PING_FAILED)
         {
             TRACE(Logger(_classname_, F("MultiPing")) << F("Ping Failed ") << ping << endl);
             if (++failCount >= 5) return PING_FAILED;
+            continue;
         }
 
-        timeout = millis() + 150;
+        pings[count++] = ping;
+        failCount = 0;
     }
     
     // Have the pings "vote" - the two pings that are closest to the average win
